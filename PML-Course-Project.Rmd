@@ -1,0 +1,159 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Vladimir Sazontov"
+date: "Monday, June 15, 2015"
+output: html_document
+---
+### Executive summary
+
+This report is a compiled (using knitr) R markdown document issued within the framework of the project for the course "Practical Machine Learning" introduced by Johns Hopkins University through Coursera.
+
+The context of the project is as follows. The initital data for analysis represents measurements of accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The source of original data: http://groupware.les.inf.puc-rio.br/har.
+
+The goal of the current project is to predict the manner in which participants did the exercise (the "classe" variable in the corresponding training set). 
+
+The task is performed in R using **rpart** and **randomForest** libraries. The report describes the applied models, their cross validation and prediction of 20 different cases. The best model appeared to be Random Forest with the out of sample error less than 1%.
+
+### Initial Data Processing
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(error = TRUE)
+```
+
+First, let's initialize necessary packages:
+```{r, eval = FALSE}
+library(knitr)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(caret)
+library(corrplot)
+library(kernlab)
+library(randomForest)
+```
+```{r, echo = FALSE}
+options(warn = -1)
+library(knitr)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(caret)
+library(corrplot)
+library(kernlab)
+library(randomForest)
+options(warn = 0)
+```
+Download and clean the data:
+```{r}
+# URL and destination files
+fileUrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+destfileTrain <- "pml-training.csv"
+fileUrlTest <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+destfileTest <- "pml-testing.csv"
+# download the files
+download.file(fileUrlTrain, destfile = destfileTrain, mode = "wb")
+download.file(fileUrlTest, destfile = destfileTest, mode = "wb")
+# read the csv file with training data
+data_training <- read.csv("pml-training.csv", na.strings= c("NA",""," ", "#DIV/0!"), header = TRUE)
+# remove columns with NAs
+data_training <- data_training[, colSums(is.na(data_training)) == 0]
+# remove first 7 identifier columns
+data_training <- data_training[8:length(data_training)]
+# the same manipulations with the testing data
+data_testing <- read.csv("pml-testing.csv", na.strings= c("NA",""," ", "#DIV/0!"), header = TRUE)
+data_testing <- data_testing[, colSums(is.na(data_testing)) == 0] 
+data_testing <- data_testing[8:length(data_testing)]
+```
+
+### Building prediction models
+
+```{r}
+# set seed for reproducibility
+set.seed(19811981)
+# split initial data_training into two data sets, 60% for training, 40% for cross validation:
+inTrain <- createDataPartition(y = data_training$classe, p = 0.6, list = FALSE)
+training <- data_training[inTrain, ]
+cross_val <- data_training[-inTrain, ]
+```
+
+```{r}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(training, saveMetrics = TRUE)
+nzv
+training <- training[, nzv$nzv == FALSE]
+cross_val <- cross_val[, nzv$nzv == FALSE]
+data_testing <- data_testing [, nzv$nzv == FALSE]
+```
+
+As the first prediction model we consider Decision Trees:
+
+```{r}
+model_DT <- train(classe ~ ., data = training, method = "rpart")
+model_DT
+```
+
+The visualization of this model is shown in Appendix A.
+
+The second prediction model is based on Random Forest algorithm:
+
+```{r}
+model_RF <- randomForest(classe ~ ., data = training)
+model_RF
+```
+
+
+### Cross validation and choice of final model
+
+Let's compare our models by the out sample errors using the remaining 40% of data
+
+```{r}
+predict_cross_val_DT <- predict(model_DT , cross_val)
+cm_DT <- confusionMatrix(cross_val$classe, predict_cross_val_DT)
+cm_DT 
+```
+
+So, the out of sample error for Decision Trees is:
+```{r}
+(1-cm_DT[["overall"]][["Accuracy"]])
+```
+
+```{r}
+predict_cross_val_RF <- predict(model_RF, cross_val)
+cm_RF <- confusionMatrix(cross_val$classe, predict_cross_val_RF)
+cm_RF 
+```
+
+The out of sample error for Random Forest is:
+```{r}
+(1-cm_RF[["overall"]][["Accuracy"]])
+```
+
+So, as one could expect, the Random Forest performes sufficiently more accuracy than Decision Trees and it is choosen for the final prediction.
+
+### Prediction for testing data
+
+```{r}
+# predict the classes of the test set
+predict_test <- predict(model_RF , data_testing)
+predict_test
+```
+
+
+### Appendix A. Decision Tree Visualization
+
+```{r, echo = FALSE}
+Sys.setenv(TZ = "Europe/Moscow")
+```
+
+```{r, fig.width = 7, fig.height = 7}
+fancyRpartPlot(model_DT$finalModel, sub = "")
+```
+
+### Appendix B. Correlation Matrix Visualization
+
+```{r, fig.width = 7, fig.height = 7}
+# plot a correlation matrix
+correlationMatrix <- cor(training[, -length(training)])
+corrplot(correlationMatrix, method = "color", type = "lower", order = "FPC", tl.cex = 0.6, 
+         tl.col = rgb(0,0,0))
+```
